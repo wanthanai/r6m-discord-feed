@@ -1,5 +1,5 @@
 const COMMUNITY_MAX_POST_AGE_SECONDS = 60 * 60 * 3;
-const COMMUNITY_FEED_URL = "https://www.reddit.com/r/Rainbow6Mobile/.rss";
+const COMMUNITY_FEED_URL = "https://old.reddit.com/r/Rainbow6Mobile/.rss";
 const OFFICIAL_MAX_POST_AGE_SECONDS = 60 * 60 * 24 * 30;
 const OFFICIAL_HOME_URL = "https://www.ubisoft.com/en-us/game/rainbow-six/mobile";
 const OFFICIAL_ARTICLE_URL_RE =
@@ -89,7 +89,10 @@ async function sendCommunityFeed(env) {
       },
     });
 
-    logEvent("[community] rss.response", { status: res.status });
+    logEvent("[community] rss.response", {
+      status: res.status,
+      url: COMMUNITY_FEED_URL,
+    });
 
     if (!res.ok) {
       result.status = "error";
