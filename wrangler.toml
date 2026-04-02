@@ -1,0 +1,6 @@
+name = "r6m-news-worker"
+main = "worker.js"
+compatibility_date = "2026-04-02"
+
+# Keep secrets in the Cloudflare dashboard.
+# Keep the NEWS_STATE KV binding configured on the Worker in Cloudflare.
