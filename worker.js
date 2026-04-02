@@ -1,4 +1,4 @@
-const COMMUNITY_MAX_POST_AGE_SECONDS = 60 * 60;
+const COMMUNITY_MAX_POST_AGE_SECONDS = 60 * 60 * 3;
 const OFFICIAL_MAX_POST_AGE_SECONDS = 60 * 60 * 24 * 30;
 const OFFICIAL_HOME_URL = "https://www.ubisoft.com/en-us/game/rainbow-six/mobile";
 const OFFICIAL_ARTICLE_URL_RE =
