@@ -1,4 +1,5 @@
 const COMMUNITY_MAX_POST_AGE_SECONDS = 60 * 60 * 3;
+const COMMUNITY_FEED_URL = "https://www.reddit.com/r/Rainbow6Mobile/.rss";
 const OFFICIAL_MAX_POST_AGE_SECONDS = 60 * 60 * 24 * 30;
 const OFFICIAL_HOME_URL = "https://www.ubisoft.com/en-us/game/rainbow-six/mobile";
 const OFFICIAL_ARTICLE_URL_RE =
@@ -78,29 +79,28 @@ async function sendCommunityFeed(env) {
 
   try {
     logEvent("[community] start", {
-      url: "https://www.reddit.com/r/Rainbow6Mobile/.json?limit=5",
+      url: COMMUNITY_FEED_URL,
     });
 
-    const redditUrl = "https://www.reddit.com/r/Rainbow6Mobile/.json?limit=5";
-    const res = await fetch(redditUrl, {
+    const res = await fetch(COMMUNITY_FEED_URL, {
       headers: {
-        "User-Agent": "BassR6MNewsBot/1.0 by Bass",
-        "Accept": "application/json",
+        "User-Agent": "script:r6m-news-worker:v1.0 (by /u/wanthanai)",
+        "Accept": "application/atom+xml,text/xml,application/xml",
       },
     });
 
-    logEvent("[community] reddit.response", { status: res.status });
+    logEvent("[community] rss.response", { status: res.status });
 
     if (!res.ok) {
       result.status = "error";
-      result.reason = "reddit_fetch_failed";
+      result.reason = "community_feed_fetch_failed";
       result.httpStatus = res.status;
       logEvent("[community] end", result);
       return result;
     }
 
-    const data = await res.json();
-    const posts = data?.data?.children ?? [];
+    const rssXml = await res.text();
+    const posts = parseCommunityFeedEntries(rssXml);
     result.fetchedCount = posts.length;
 
     if (!posts.length) {
@@ -109,17 +109,16 @@ async function sendCommunityFeed(env) {
       return result;
     }
 
-    const latest = posts[0]?.data;
+    const latest = posts[0];
     result.latestId = latest?.id ?? null;
 
-    if (!latest?.id || !latest?.created_utc) {
+    if (!latest?.id || !latest?.publishedAt) {
       result.reason = "invalid_latest_post";
       logEvent("[community] end", result);
       return result;
     }
 
-    const now = Math.floor(Date.now() / 1000);
-    const postAge = now - latest.created_utc;
+    const postAge = Math.floor((Date.now() - latest.publishedAt) / 1000);
     result.postAgeSeconds = postAge;
 
     if (postAge > COMMUNITY_MAX_POST_AGE_SECONDS) {
@@ -146,11 +145,9 @@ async function sendCommunityFeed(env) {
     }
 
     const title = latest.title ?? "New community post";
-    const permalink = latest.permalink
-      ? `https://www.reddit.com${latest.permalink}`
-      : "https://www.reddit.com/r/Rainbow6Mobile/";
+    const permalink = latest.url ?? "https://www.reddit.com/r/Rainbow6Mobile/";
     const author = latest.author ?? "unknown";
-    let description = latest.selftext ? decodeHtml(latest.selftext).trim() : "";
+    let description = latest.description ?? "";
 
     if (!description) description = "New community post from r/Rainbow6Mobile.";
     if (description.length > 300) description = description.slice(0, 297) + "...";
@@ -411,6 +408,38 @@ function sumBy(items, key) {
   return items.reduce((total, item) => total + (Number(item?.[key]) || 0), 0);
 }
 
+function parseCommunityFeedEntries(xml) {
+  const entryMatches = xml.match(/<entry\b[\s\S]*?<\/entry>/g) ?? [];
+
+  return entryMatches.map((entryXml) => {
+    const rawId = extractMetaValue(entryXml, /<id>([^<]+)<\/id>/i);
+    const id = rawId?.replace(/^t3_/, "") ?? null;
+    const title = extractMetaValue(entryXml, /<title>([\s\S]*?)<\/title>/i);
+    const url = extractMetaValue(entryXml, /<link[^>]+href="([^"]+)"/i);
+    const author = extractMetaValue(entryXml, /<author><name>([\s\S]*?)<\/name>/i)?.replace(
+      /^\/u\//,
+      "",
+    );
+    const publishedRaw =
+      extractMetaValue(entryXml, /<published>([^<]+)<\/published>/i) ||
+      extractMetaValue(entryXml, /<updated>([^<]+)<\/updated>/i);
+    const publishedAt = publishedRaw ? Date.parse(publishedRaw) : Number.NaN;
+    const descriptionHtml = extractMetaValue(entryXml, /<content[^>]*>([\s\S]*?)<\/content>/i);
+    const description = descriptionHtml ? stripHtml(decodeHtml(descriptionHtml)) : "";
+    const imageUrl = extractMetaValue(entryXml, /<media:thumbnail[^>]+url="([^"]+)"/i);
+
+    return {
+      id,
+      title: title ? decodeHtml(title).trim() : null,
+      url: url ? decodeHtml(url).trim() : null,
+      author: author ? decodeHtml(author).trim() : "unknown",
+      publishedAt: Number.isFinite(publishedAt) ? publishedAt : null,
+      description: description.trim(),
+      imageUrl: imageUrl ? decodeHtml(imageUrl).trim() : null,
+    };
+  });
+}
+
 function extractOfficialArticlePath(html) {
   const patterns = [
     /"buttonUrl":"(\/news-updates\/[A-Za-z0-9]+(?:\/[A-Za-z0-9-]+)?)"/,
@@ -461,6 +490,13 @@ function parseOfficialArticle(html, fallbackUrl) {
 function extractMetaValue(html, pattern) {
   const match = html.match(pattern);
   return match?.[1] ?? null;
+}
+
+function stripHtml(str) {
+  return String(str)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function getPreviewImage(post) {
